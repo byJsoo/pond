@@ -122,6 +122,54 @@ describe("isCaptureTweetStale", () => {
 });
 
 describe("runCaptureTweet reply parent enrichment", () => {
+  it("persists both screenshot variants even when the page reports no media", async () => {
+    const harness = makePorts(save(replyRaw()), {
+      light: { ok: true, png: rendered },
+      dark: { ok: true, png: rendered },
+      page: {
+        id: "2",
+        source: "twitter",
+        url: "https://x.com/alice/status/2",
+        media: [],
+      },
+    });
+    harness.renderTweetCardPng.mockResolvedValue(null);
+
+    await expect(harness.runCaptureTweet("save-1")).resolves.toMatchObject({
+      captured: 2,
+    });
+    const actorReasons = harness.persistSave.mock.calls.map(
+      ([, , options]) => options.actorReason,
+    );
+    expect(actorReasons).toContain(
+      "pipeline:capture-tweet:tweet_screenshot_light",
+    );
+    expect(actorReasons).toContain(
+      "pipeline:capture-tweet:tweet_screenshot_dark",
+    );
+  });
+
+  it("persists the light screenshot when the dark fallback fails", async () => {
+    const harness = makePorts(save(replyRaw()), {
+      light: { ok: true, png: rendered },
+      dark: { ok: false, reason: "capture_failed" },
+    });
+    harness.renderTweetCardPng.mockResolvedValue(null);
+
+    await expect(harness.runCaptureTweet("save-1")).resolves.toMatchObject({
+      captured: 1,
+    });
+    const actorReasons = harness.persistSave.mock.calls.map(
+      ([, , options]) => options.actorReason,
+    );
+    expect(actorReasons).toContain(
+      "pipeline:capture-tweet:tweet_screenshot_light",
+    );
+    expect(actorReasons).not.toContain(
+      "pipeline:capture-tweet:tweet_screenshot_dark",
+    );
+  });
+
   it("merges parent metadata without persisting parent screenshots", async () => {
     const harness = makePorts(save(replyRaw()), {
       light: { ok: true, png: rendered },

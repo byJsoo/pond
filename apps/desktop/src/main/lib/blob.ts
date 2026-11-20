@@ -24,7 +24,7 @@ interface FetchMediaOptions extends TransferOptions {
 
 type BlobMiss = "transient" | "permanent";
 
-function classifyHttpStatus(status: number): BlobMiss {
+export function classifyHttpStatus(status: number): BlobMiss {
   if (status === 408 || status === 425 || status === 429) return "transient";
   if (status >= 500) return "transient";
   return "permanent";

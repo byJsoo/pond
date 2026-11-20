@@ -139,6 +139,24 @@ it("includes direct videos when auto-download is on", () => {
   );
 });
 
+it("does not put an X video poster URL in the media download queue", () => {
+  const withPoster = storedAsRawJson({
+    capture: {
+      media: [
+        {
+          type: "video",
+          url: "https://video.twimg.com/ext_tw_video/1/vid/720x1280/clip.mp4",
+          posterUrl:
+            "https://pbs.twimg.com/ext_tw_video_thumb/1/pu/img/poster.jpg",
+        },
+      ],
+    },
+  });
+  expect(collectMediaUrls(withPoster, { includeVideo: true })).toEqual([
+    "https://video.twimg.com/ext_tw_video/1/vid/720x1280/clip.mp4",
+  ]);
+});
+
 it("skips the author's avatar stored as tweet media", () => {
   const withAvatar = storedAsRawJson({
     capture: {

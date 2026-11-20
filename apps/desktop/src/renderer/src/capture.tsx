@@ -3,6 +3,10 @@ import { TweetCardDataSchema } from "@shared/tweet-card";
 import { useEffect, useRef } from "react";
 import { createRoot } from "react-dom/client";
 import type { z } from "zod";
+import {
+  type CaptureImageDiagnostics,
+  waitForImagesWithDiagnostics,
+} from "./capture-image-diagnostics";
 import { TextCard } from "./features/captures/components/text-card";
 import { ThreadsCard } from "./features/captures/components/threads/card";
 import { TweetCard } from "./features/captures/components/tweet/card";
@@ -40,19 +44,13 @@ const TWEET_PAYLOAD = decodePayload(TweetCardDataSchema, {
 });
 const TEXT_PAYLOAD = decodePayload(TextCardDataSchema, { text: "" });
 
-function waitForImages(root: HTMLElement): Promise<void> {
+async function waitForImages(
+  root: HTMLElement,
+): Promise<CaptureImageDiagnostics> {
   const imgs = Array.from(root.querySelectorAll("img")).filter((img) =>
     Boolean(img.currentSrc || img.src),
   );
-  if (imgs.length === 0) return Promise.resolve();
-  return Promise.race([
-    Promise.all(imgs.map((img) => img.decode().catch(() => undefined))).then(
-      () => undefined,
-    ),
-    new Promise<void>((resolve) => {
-      setTimeout(resolve, IMAGE_WAIT_MS);
-    }),
-  ]);
+  return waitForImagesWithDiagnostics(imgs, IMAGE_WAIT_MS);
 }
 
 function CaptureCard() {
@@ -64,7 +62,9 @@ function CaptureCard() {
       try {
         if (document.fonts?.ready) await document.fonts.ready;
       } catch {}
-      if (ref.current) await waitForImages(ref.current);
+      const imageDiagnostics = ref.current
+        ? await waitForImages(ref.current)
+        : undefined;
       /** A hidden window can stop delivering frames, so rAF alone may never fire and the capture waits to time out. */
       await new Promise((resolve) => {
         const timer = setTimeout(resolve, 250);
@@ -73,7 +73,19 @@ function CaptureCard() {
           resolve(null);
         });
       });
-      if (!cancelled) document.documentElement.dataset.ready = "1";
+      if (!cancelled) {
+        const markedReadyWithIncomplete = Boolean(
+          imageDiagnostics &&
+            (imageDiagnostics.rejected > 0 ||
+              imageDiagnostics.stillLoading > 0),
+        );
+        // Temporary, aggregate-only diagnostics: never include image URLs or card data.
+        console.info("[pond capture diagnostics] native-card-ready", {
+          ...imageDiagnostics,
+          markedReadyWithIncomplete,
+        });
+        document.documentElement.dataset.ready = "1";
+      }
     };
     void run();
     return () => {

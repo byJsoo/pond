@@ -30,6 +30,18 @@ export interface TweetScreenshotResult {
     | "capture_failed";
   quotedUrl?: string;
   media?: CaptureMedia[];
+  /** Temporary aggregate-only diagnostics for incomplete external media. */
+  imageDiagnostics?: ScreenshotImageDiagnostics;
+}
+
+interface ScreenshotImageDiagnostics {
+  sourceId: string;
+  colorScheme: "light" | "dark";
+  total: number;
+  decoded: number;
+  stillLoading: number;
+  failed: number;
+  proceededBy: "all-complete" | "timeout";
 }
 
 const SCREENSHOT_PADDING_CSS = 24;
@@ -332,6 +344,15 @@ async function captureCurrentScheme(
       return { ok: false, reason: "no_article" };
     }
 
+    const imageDiagnostics = await waitForArticleImages(
+      win,
+      sourceId,
+      colorScheme,
+      kind,
+    );
+    // Temporary, aggregate-only diagnostics: no page text, URLs, or cookies.
+    log.info("[pond screenshot diagnostics] article-images", imageDiagnostics);
+
     const [contentWidthRaw, originalContentHeightRaw] = win.getContentSize();
     const contentWidth = contentWidthRaw ?? 1280;
     const originalContentHeight = originalContentHeightRaw ?? 1024;
@@ -378,7 +399,11 @@ async function captureCurrentScheme(
             return { ok: false, reason: "no_article" } as const;
           }
           const padded = await padScreenshot(rawBytes, size, colorScheme);
-          const shot: TweetScreenshotResult = { ok: true, png: padded };
+          const shot: TweetScreenshotResult = {
+            ok: true,
+            png: padded,
+            imageDiagnostics,
+          };
           if (rect.quotedUrl) shot.quotedUrl = rect.quotedUrl;
           return shot;
         },
@@ -393,6 +418,64 @@ async function captureCurrentScheme(
   } finally {
     if (cssKey) await win.webContents.removeInsertedCSS(cssKey).catch(() => {});
   }
+}
+
+const ScreenshotImageDiagnosticsSchema = z
+  .object({
+    total: z.number().int().nonnegative(),
+    decoded: z.number().int().nonnegative(),
+    stillLoading: z.number().int().nonnegative(),
+    failed: z.number().int().nonnegative(),
+    proceededBy: z.enum(["all-complete", "timeout"]),
+  })
+  .catch({
+    total: 0,
+    decoded: 0,
+    stillLoading: 0,
+    failed: 0,
+    proceededBy: "timeout" as const,
+  });
+
+async function waitForArticleImages(
+  win: BrowserWindow,
+  sourceId: string,
+  colorScheme: "light" | "dark",
+  kind: "tweet" | "threads",
+): Promise<ScreenshotImageDiagnostics> {
+  const source = JSON.stringify(sourceId);
+  const target =
+    kind === "threads"
+      ? `document.querySelector('a[href*="/post/' + ${source}]')?.closest('[data-pressable-container], [role="article"], article')`
+      : `document.querySelector('a[href*="/status/' + ${source}]')?.closest('article')`;
+  const expression = `(async () => {
+    const target = ${target};
+    const images = target ? Array.from(target.querySelectorAll('img')).filter((image) => image.currentSrc || image.src) : [];
+    let decoded = 0;
+    let failed = 0;
+    const complete = Promise.all(images.map((image) => image.decode().then(() => { decoded += 1; }, () => { failed += 1; }))).then(() => 'all-complete');
+    const proceededBy = await Promise.race([complete, new Promise((resolve) => setTimeout(() => resolve('timeout'), 6000))]);
+    return {
+      total: images.length,
+      decoded,
+      failed,
+      stillLoading: images.filter((image) => !image.complete).length,
+      proceededBy,
+    };
+  })()`;
+  let raw: unknown;
+  try {
+    raw = await Promise.race([
+      win.webContents.executeJavaScript(expression, true),
+      sleep(SCREENSHOT_ARTICLE_TIMEOUT_MS).then(() => null),
+    ]);
+  } catch {
+    raw = null;
+  }
+  return {
+    sourceId,
+    colorScheme,
+    ...ScreenshotImageDiagnosticsSchema.parse(raw),
+  };
 }
 
 async function waitForSchemeFlip(

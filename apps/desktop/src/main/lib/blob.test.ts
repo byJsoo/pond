@@ -1,6 +1,6 @@
 import sharp from "sharp";
 import { expect, it } from "vitest";
-import { isReadableImage } from "./blob";
+import { classifyHttpStatus, isReadableImage } from "./blob";
 
 const png = () =>
   sharp({
@@ -30,6 +30,16 @@ it("rejects a PNG cut off before the end", async () => {
   expect(await isReadableImage(bytes.subarray(0, bytes.length - 20))).toBe(
     false,
   );
+});
+
+it("classifies a transient X media HTTP response for retry", () => {
+  expect(classifyHttpStatus(429)).toBe("transient");
+  expect(classifyHttpStatus(503)).toBe("transient");
+});
+
+it("classifies a permanent X media HTTP response without retry", () => {
+  expect(classifyHttpStatus(404)).toBe("permanent");
+  expect(classifyHttpStatus(403)).toBe("permanent");
 });
 
 function ico(payload: Buffer, declaredSize = payload.length): Buffer {

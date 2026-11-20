@@ -449,6 +449,12 @@ async function captureVariants<SaveRow extends CaptureTweetSave>(
         ports,
       );
       captured += 1;
+    } else if (light.imageDiagnostics) {
+      log.info("[pond screenshot diagnostics] persisted", {
+        kind: args.lightKind,
+        persisted: false,
+        ...light.imageDiagnostics,
+      });
     }
     lightOk = true;
   } else if (light.reason === "auth_required") {
@@ -466,6 +472,12 @@ async function captureVariants<SaveRow extends CaptureTweetSave>(
         ports,
       );
       captured += 1;
+    } else if (dark.imageDiagnostics) {
+      log.info("[pond screenshot diagnostics] persisted", {
+        kind: args.darkKind,
+        persisted: false,
+        ...dark.imageDiagnostics,
+      });
     }
     darkOk = true;
   } else if (dark.reason === "auth_required") {
@@ -530,6 +542,12 @@ async function writeScreenshot(
       ],
     },
   );
+  // Temporary aggregate-only diagnostic; persistence has completed at this point.
+  log.info("[pond screenshot diagnostics] persisted", {
+    kind,
+    persisted: true,
+    ...result.imageDiagnostics,
+  });
 }
 
 async function finalizeRawJson<SaveRow extends CaptureTweetSave>(
