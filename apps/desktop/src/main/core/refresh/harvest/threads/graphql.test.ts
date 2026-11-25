@@ -146,6 +146,75 @@ describe("parseSavedResponses", () => {
     ]);
     expect(rich.has("ParentCode01")).toBe(true);
   });
+
+  it("keeps carousel children nested on the parent post", () => {
+    const child = (code: string, n: number) => ({
+      code,
+      media_type: 1,
+      user: { username: "alice", full_name: "Alice" },
+      image_versions2: {
+        candidates: [
+          {
+            url: `https://cdn.example.com/child-${n}.jpg`,
+            width: 1440,
+            height: 2016,
+          },
+        ],
+      },
+    });
+    const carouselPayload = {
+      data: {
+        mediaData: {
+          edges: [
+            {
+              node: {
+                thread_items: [
+                  {
+                    post: {
+                      code: "Carousel01",
+                      media_type: 8,
+                      caption: { text: "my desk setup" },
+                      like_count: 30,
+                      user: {
+                        username: "alice",
+                        full_name: "Alice",
+                        profile_pic_url: "https://example.com/a.jpg",
+                      },
+                      carousel_media: [
+                        child("ChildOne01", 1),
+                        child("ChildTwo02", 2),
+                        child("ChildThree03", 3),
+                      ],
+                      text_post_app_info: {
+                        direct_reply_count: 1,
+                        quote_count: 0,
+                        repost_count: 0,
+                      },
+                    },
+                  },
+                ],
+              },
+            },
+          ],
+          page_info: { has_next_page: false, end_cursor: null },
+        },
+      },
+    };
+    const rich = parseSavedResponses([
+      {
+        url: "https://www.threads.com/graphql/query",
+        body: JSON.stringify(carouselPayload),
+      },
+    ]);
+    expect([...rich.keys()]).toEqual(["Carousel01"]);
+    const post = rich.get("Carousel01");
+    expect(post?.media.map((m) => m.url)).toEqual([
+      "https://cdn.example.com/child-1.jpg",
+      "https://cdn.example.com/child-2.jpg",
+      "https://cdn.example.com/child-3.jpg",
+    ]);
+    expect(post?.fullText).toBe("my desk setup");
+  });
 });
 
 describe("buildThreadsSavedSeed", () => {
