@@ -13,6 +13,7 @@ export type PosterWrite = {
   width?: number;
   height?: number;
   sourceUrl?: string;
+  coverAttemptedUrl?: string;
 };
 
 type MediaDims = Pick<SaveFile, "width" | "height">;

@@ -30,6 +30,8 @@ interface PlayerResponse {
   microformat?: {
     playerMicroformatRenderer: {
       publishDate?: string;
+      canonicalUrl?: string;
+      isShortsEligible?: boolean;
       thumbnail?: {
         isOriginalAspectRatio?: boolean;
         thumbnails?: Array<{ url?: string; width?: number; height?: number }>;
@@ -38,23 +40,55 @@ interface PlayerResponse {
   };
 }
 
-async function harvest(html: string, player?: PlayerResponse) {
+async function harvest(
+  html: string,
+  player?: PlayerResponse,
+  options: { fetchPage?: unknown } = {},
+) {
   const { window } = new JSDOM(
     `<!doctype html><html><body>${html}</body></html>`,
     { url: "https://www.youtube.com/watch?v=dQw4w9WgXcQ" },
   );
+  const context = {
+    document: window.document,
+    location: window.location,
+    ytInitialPlayerResponse: player,
+    URL,
+    DOMParser: window.DOMParser,
+    AbortController,
+    setTimeout,
+    clearTimeout,
+  };
+  const vmContext = options.fetchPage
+    ? { ...context, fetch: options.fetchPage }
+    : context;
   const page: Promise<YoutubeWatchPage | null> = runInNewContext(
     buildExpression("dQw4w9WgXcQ"),
-    {
-      document: window.document,
-      location: window.location,
-      ytInitialPlayerResponse: player,
-      URL,
-      setTimeout,
-      clearTimeout,
-    },
+    vmContext,
   );
   return page;
+}
+
+function shortsPage(
+  videoId: string,
+  thumbnails: Array<{ url: string; width: number; height: number }>,
+  options: { includePlayer?: boolean; ogImage?: string } = {},
+) {
+  const ogImage = options.ogImage ?? thumbnails[0]?.url ?? "";
+  const player = {
+    videoDetails: { videoId },
+    microformat: {
+      playerMicroformatRenderer: {
+        canonicalUrl: `https://www.youtube.com/shorts/${videoId}`,
+        thumbnail: { isOriginalAspectRatio: true, thumbnails },
+      },
+    },
+  };
+  const script =
+    options.includePlayer === false
+      ? ""
+      : `<script>ytInitialPlayerResponse = ${JSON.stringify(player)};</script>`;
+  return `<!doctype html><html><head><link rel="canonical" href="https://www.youtube.com/shorts/${videoId}"><meta property="og:url" content="https://www.youtube.com/shorts/${videoId}"><meta property="og:image" content="${ogImage}"></head><body>${script}</body></html>`;
 }
 
 describe("youtube watch description", () => {
@@ -152,5 +186,163 @@ describe("youtube watch metadata", () => {
     expect(page?.meta?.views).toBeUndefined();
     expect(page?.meta?.durationSec).toBeUndefined();
     expect(page?.description).not.toBe(caption);
+  });
+
+  const shortsWatchPlayer: PlayerResponse = {
+    videoDetails: {
+      videoId: "dQw4w9WgXcQ",
+      shortDescription: caption,
+      viewCount: "1000",
+      lengthSeconds: "58",
+    },
+    microformat: {
+      playerMicroformatRenderer: {
+        canonicalUrl: "https://www.youtube.com/shorts/dQw4w9WgXcQ",
+        isShortsEligible: true,
+        publishDate: "2026-01-01T00:00:00-08:00",
+        thumbnail: {
+          thumbnails: [
+            {
+              url: "https://i.ytimg.com/vi/dQw4w9WgXcQ/maxresdefault.jpg?sqp=watch",
+              width: 1280,
+              height: 720,
+            },
+          ],
+        },
+      },
+    },
+  };
+
+  it.each(["oardefault.jpg", "sardefault.jpg", "hq720.jpg"])(
+    "reads the exact Shorts display cover from the /shorts player response: %s",
+    async (filename) => {
+      const cover = `https://i.ytimg.com/vi/dQw4w9WgXcQ/${filename}?sqp=signed`;
+      const fetched: Array<string> = [];
+      const page = await harvest(
+        `${descriptionBox}<video poster="https://i.ytimg.com/vi/dQw4w9WgXcQ/hqdefault.jpg"></video>`,
+        shortsWatchPlayer,
+        {
+          fetchPage: async (url: string) => {
+            fetched.push(url);
+            return {
+              ok: true,
+              text: async () =>
+                shortsPage("dQw4w9WgXcQ", [
+                  { url: cover, width: 405, height: 720 },
+                ]),
+            };
+          },
+        },
+      );
+
+      expect(fetched).toEqual(["/shorts/dQw4w9WgXcQ"]);
+      expect(page?.mediaUrl).toBe(cover);
+      expect(page?.mediaUrls).toEqual([{ url: cover, type: "video" }]);
+      expect(page?.title).toBe("Leg day");
+      expect(page?.description).toBe(caption);
+      expect(page?.meta).toMatchObject({
+        views: 1000,
+        durationSec: 58,
+        publishedAt: "2026-01-01T00:00:00-08:00",
+      });
+    },
+  );
+
+  it("uses the Shorts og image when the player response cannot be parsed", async () => {
+    const cover =
+      "https://i.ytimg.com/vi/dQw4w9WgXcQ/oardefault.jpg?sqp=signed";
+    const page = await harvest(
+      `${descriptionBox}<video poster="https://i.ytimg.com/vi/dQw4w9WgXcQ/hqdefault.jpg"></video>`,
+      shortsWatchPlayer,
+      {
+        fetchPage: async () => ({
+          ok: true,
+          text: async () =>
+            shortsPage("dQw4w9WgXcQ", [], {
+              includePlayer: false,
+              ogImage: cover,
+            }),
+        }),
+      },
+    );
+
+    expect(page?.mediaUrl).toBe(cover);
+  });
+
+  it("ignores a portrait player thumbnail when /shorts canonicalizes back to watch", async () => {
+    const cover = "https://i.ytimg.com/vi/dQw4w9WgXcQ/hq720.jpg?sqp=signed";
+    const normalPlayer = {
+      videoDetails: { videoId: "dQw4w9WgXcQ" },
+      microformat: {
+        playerMicroformatRenderer: {
+          canonicalUrl: "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
+          thumbnail: {
+            isOriginalAspectRatio: true,
+            thumbnails: [{ url: cover, width: 405, height: 720 }],
+          },
+        },
+      },
+    };
+    const html = `<!doctype html><html><head><link rel="canonical" href="https://www.youtube.com/watch?v=dQw4w9WgXcQ"><meta property="og:url" content="https://www.youtube.com/watch?v=dQw4w9WgXcQ"><meta property="og:image" content="${cover}"></head><body><script>ytInitialPlayerResponse = ${JSON.stringify(normalPlayer)};</script></body></html>`;
+    const page = await harvest(
+      `${descriptionBox}<video poster="https://i.ytimg.com/vi/dQw4w9WgXcQ/hqdefault.jpg"></video>`,
+      shortsWatchPlayer,
+      {
+        fetchPage: async () => ({ ok: true, text: async () => html }),
+      },
+    );
+
+    expect(page?.mediaUrl).toBe(
+      "https://i.ytimg.com/vi/dQw4w9WgXcQ/hqdefault.jpg",
+    );
+  });
+
+  it("does not probe /shorts for a normal watch video", async () => {
+    const fetched: Array<string> = [];
+    const page = await harvest(
+      `${descriptionBox}<video poster="https://i.ytimg.com/vi/dQw4w9WgXcQ/hqdefault.jpg"></video>`,
+      {
+        videoDetails: {
+          videoId: "dQw4w9WgXcQ",
+          lengthSeconds: "30",
+        },
+        microformat: {
+          playerMicroformatRenderer: {
+            canonicalUrl: "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
+            isShortsEligible: false,
+          },
+        },
+      },
+      {
+        fetchPage: async (url: string) => {
+          fetched.push(url);
+          return { ok: false, text: async () => "" };
+        },
+      },
+    );
+
+    expect(fetched).toEqual([]);
+    expect(page?.mediaUrl).toBe(
+      "https://i.ytimg.com/vi/dQw4w9WgXcQ/hqdefault.jpg",
+    );
+  });
+
+  it("keeps the watch harvest when the Shorts cover probe fails", async () => {
+    const page = await harvest(
+      `${descriptionBox}<video poster="https://i.ytimg.com/vi/dQw4w9WgXcQ/hqdefault.jpg"></video>`,
+      shortsWatchPlayer,
+      {
+        fetchPage: async () => {
+          throw new Error("offline");
+        },
+      },
+    );
+
+    expect(page?.title).toBe("Leg day");
+    expect(page?.description).toBe(caption);
+    expect(page?.mediaUrl).toBe(
+      "https://i.ytimg.com/vi/dQw4w9WgXcQ/hqdefault.jpg",
+    );
+    expect(page?.meta?.durationSec).toBe(58);
   });
 });

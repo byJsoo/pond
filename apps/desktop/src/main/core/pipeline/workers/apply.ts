@@ -26,6 +26,7 @@ interface WriteFileMetadata {
   width?: number;
   height?: number;
   sourceUrl?: string;
+  coverAttemptedUrl?: string;
   custom?: boolean;
 }
 
@@ -93,6 +94,7 @@ export async function stageSaveFiles(
         width: file.width,
         height: file.height,
         sourceUrl: file.sourceUrl,
+        coverAttemptedUrl: file.coverAttemptedUrl,
         custom: file.custom,
         stagingPath,
         ...details,
@@ -172,6 +174,9 @@ export async function applySavePatch(
         if (file.width) entry.width = file.width;
         if (file.height) entry.height = file.height;
         if (file.sourceUrl) entry.sourceUrl = file.sourceUrl;
+        if (file.coverAttemptedUrl) {
+          entry.coverAttemptedUrl = file.coverAttemptedUrl;
+        }
         if (file.custom) entry.custom = true;
         written.push(entry);
       }

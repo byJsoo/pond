@@ -13,6 +13,7 @@ export interface InfoFile {
   sha256: string;
   size: number;
   sourceUrl?: string;
+  coverAttemptedUrl?: string;
   mimeType?: string;
   width?: number;
   height?: number;
@@ -119,6 +120,7 @@ export const StoredInfoDocSchema = z.object({
         sha256: z.string().catch(""),
         size: z.number().catch(0),
         sourceUrl: z.string().optional().catch(undefined),
+        coverAttemptedUrl: z.string().optional().catch(undefined),
         mimeType: z.string().optional().catch(undefined),
         width: z.number().optional().catch(undefined),
         height: z.number().optional().catch(undefined),
@@ -139,6 +141,7 @@ export function infoFilesFromSave(files: Save["files"]): Array<InfoFile> {
     width: file.width ?? undefined,
     height: file.height ?? undefined,
     sourceUrl: file.sourceUrl ?? undefined,
+    coverAttemptedUrl: file.coverAttemptedUrl ?? undefined,
   }));
 }
 

@@ -9,6 +9,16 @@ interface YoutubeThumbnail {
   height?: number;
 }
 
+interface YoutubePlayerMicroformatRenderer {
+  publishDate?: string;
+  canonicalUrl?: string;
+  isShortsEligible?: boolean;
+  thumbnail?: {
+    isOriginalAspectRatio?: boolean;
+    thumbnails?: Array<YoutubeThumbnail>;
+  };
+}
+
 interface YoutubePlayerResponse {
   videoDetails?: {
     videoId?: string;
@@ -17,13 +27,7 @@ interface YoutubePlayerResponse {
     lengthSeconds?: string;
   };
   microformat?: {
-    playerMicroformatRenderer?: {
-      publishDate?: string;
-      thumbnail?: {
-        isOriginalAspectRatio?: boolean;
-        thumbnails?: Array<YoutubeThumbnail>;
-      };
-    };
+    playerMicroformatRenderer?: YoutubePlayerMicroformatRenderer;
   };
 }
 
@@ -53,6 +57,8 @@ export interface YoutubeWatchPage {
 }
 
 export function inPageYoutubeNormalize(validators: BrowserValidators) {
+  const shortsMaxDurationSec = 180;
+
   function extractVideoId(href: string): string | null {
     try {
       const u = new URL(href, location.origin);
@@ -194,10 +200,11 @@ export function inPageYoutubeNormalize(validators: BrowserValidators) {
   }
 
   /** Shorts publish an upright original-aspect image beside the blurred 16:9 poster. */
-  function readPortraitThumbnail(): string | undefined {
-    const thumbnail =
-      currentPlayerResponse()?.microformat?.playerMicroformatRenderer
-        ?.thumbnail;
+  function readPortraitThumbnail(
+    player?: YoutubePlayerResponse | null,
+  ): string | undefined {
+    const source = player === undefined ? currentPlayerResponse() : player;
+    const thumbnail = source?.microformat?.playerMicroformatRenderer?.thumbnail;
     if (thumbnail?.isOriginalAspectRatio !== true) return undefined;
     const thumbs = thumbnail.thumbnails;
     if (!Array.isArray(thumbs)) return undefined;
@@ -343,5 +350,149 @@ export function inPageYoutubeNormalize(validators: BrowserValidators) {
     return line.replaceAll(/\D/g, "").length >= 10;
   }
 
-  return { extractVideoId, parseCount, extractWatchPageMeta };
+  function isShortsVideo(durationSec: number | undefined): boolean {
+    const renderer =
+      currentPlayerResponse()?.microformat?.playerMicroformatRenderer;
+    const canonical = validators.text.safeParse(renderer?.canonicalUrl);
+    if (canonical.success && canonical.data) {
+      const path = urlPath(canonical.data);
+      if (path) return path.startsWith("/shorts/");
+    }
+    if (renderer?.isShortsEligible === false) return false;
+    return (
+      durationSec !== undefined &&
+      durationSec > 0 &&
+      durationSec <= shortsMaxDurationSec
+    );
+  }
+
+  function urlPath(value: string): string | null {
+    try {
+      return new URL(value, location.origin).pathname;
+    } catch {
+      return null;
+    }
+  }
+
+  function shortsDisplayCoverFromHtml(
+    html: string,
+    videoId: string,
+  ): string | undefined {
+    let doc: Document;
+    try {
+      doc = new DOMParser().parseFromString(html, "text/html");
+    } catch {
+      return undefined;
+    }
+
+    let player: YoutubePlayerResponse | null = null;
+    for (const script of Array.from(doc.scripts)) {
+      const parsed = playerResponseFromScript(script.textContent ?? "");
+      if (parsed?.videoDetails?.videoId === videoId) {
+        player = parsed;
+        break;
+      }
+    }
+    const shortsDocument = isShortsHtmlDocument(doc, videoId);
+    const cover =
+      shortsDocument || isShortsPlayerResponse(player, videoId)
+        ? readPortraitThumbnail(player)
+        : undefined;
+    if (cover) return cover;
+
+    const ogImage = doc
+      .querySelector<HTMLMetaElement>('meta[property="og:image"]')
+      ?.getAttribute("content")
+      ?.trim();
+    if (!ogImage?.startsWith("https://")) return undefined;
+    return shortsDocument ? ogImage : undefined;
+  }
+
+  function isShortsPlayerResponse(
+    player: YoutubePlayerResponse | null,
+    videoId: string,
+  ): boolean {
+    const canonical =
+      player?.microformat?.playerMicroformatRenderer?.canonicalUrl;
+    if (!canonical) return false;
+    return urlPath(canonical)?.replace(/\/$/, "") === `/shorts/${videoId}`;
+  }
+
+  function isShortsHtmlDocument(doc: Document, videoId: string): boolean {
+    const canonical = doc
+      .querySelector<HTMLLinkElement>('link[rel="canonical"]')
+      ?.getAttribute("href");
+    const ogUrl = doc
+      .querySelector<HTMLMetaElement>('meta[property="og:url"]')
+      ?.getAttribute("content");
+    for (const value of [canonical, ogUrl]) {
+      if (!value) continue;
+      try {
+        const url = new URL(value, "https://www.youtube.com");
+        const host = url.hostname.toLowerCase().replace(/\.$/, "");
+        if (
+          (host === "youtube.com" || host.endsWith(".youtube.com")) &&
+          url.pathname === `/shorts/${videoId}`
+        ) {
+          return true;
+        }
+      } catch {
+        /** A malformed document URL carries no canonical evidence. */
+      }
+    }
+    return false;
+  }
+
+  function playerResponseFromScript(
+    script: string,
+  ): YoutubePlayerResponse | null {
+    const marker = script.indexOf("ytInitialPlayerResponse");
+    if (marker < 0) return null;
+    const literal = jsonObjectLiteral(script, marker);
+    if (!literal) return null;
+    try {
+      const parsed: unknown = JSON.parse(literal);
+      return isPlayerResponse(parsed) ? parsed : null;
+    } catch {
+      return null;
+    }
+  }
+
+  function isPlayerResponse(value: unknown): value is YoutubePlayerResponse {
+    return validators.object.safeParse(value).success;
+  }
+
+  function jsonObjectLiteral(source: string, start: number): string | null {
+    const open = source.indexOf("{", start);
+    if (open < 0) return null;
+    let depth = 0;
+    let inString = false;
+    let escaped = false;
+    for (let index = open; index < source.length; index += 1) {
+      const char = source[index];
+      if (inString) {
+        if (escaped) escaped = false;
+        else if (char === "\\") escaped = true;
+        else if (char === '"') inString = false;
+        continue;
+      }
+      if (char === '"') {
+        inString = true;
+      } else if (char === "{") {
+        depth += 1;
+      } else if (char === "}") {
+        depth -= 1;
+        if (depth === 0) return source.slice(open, index + 1);
+      }
+    }
+    return null;
+  }
+
+  return {
+    extractVideoId,
+    parseCount,
+    extractWatchPageMeta,
+    isShortsVideo,
+    shortsDisplayCoverFromHtml,
+  };
 }

@@ -108,6 +108,7 @@ const PackageSaveSchema = z.object({
       width: z.number().nullable().optional(),
       height: z.number().nullable().optional(),
       sourceUrl: z.string().nullable().optional(),
+      coverAttemptedUrl: z.string().nullable().optional(),
     }),
   ),
 });

@@ -131,18 +131,19 @@ describe("ensureRemotePoster", () => {
     expect(persisted).toEqual([]);
   });
 
-  it("uses a portrait Shorts file and skips a landscape original-aspect file", async () => {
+  it("uses the first portrait Shorts cover endpoint before automatic frames", async () => {
     const landscape = await jpeg(4, 2);
     const portrait = await jpeg(2, 4);
     const id = "a88WoGBL1Mc";
     const hq = `https://i.ytimg.com/vi/${id}/hqdefault.jpg`;
     const oar2 = `https://i.ytimg.com/vi/${id}/oar2.jpg`;
     const oardefault = `https://i.ytimg.com/vi/${id}/oardefault.jpg`;
+    const sardefault = `https://i.ytimg.com/vi/${id}/sardefault.jpg`;
     const { runtime, fetched, persisted } = recordingRuntime(async (url) => {
-      if (url === oar2) {
+      if (url === oardefault) {
         return image(landscape);
       }
-      if (url === oardefault) {
+      if (url === sardefault) {
         return image(portrait);
       }
       return { miss: "permanent" };
@@ -165,13 +166,20 @@ describe("ensureRemotePoster", () => {
               },
             ],
           },
+          ytdlp: {
+            duration: 39,
+            width: 1080,
+            height: 1920,
+            thumbnail: hq,
+          },
         }),
       }),
       false,
       runtime,
     );
 
-    expect(fetched).toEqual([oar2, oardefault]);
+    expect(fetched).toEqual([oardefault, sardefault]);
+    expect(fetched).not.toContain(oar2);
     expect(persisted).toEqual([
       [
         "s1",
@@ -183,7 +191,169 @@ describe("ensureRemotePoster", () => {
     ]);
   });
 
-  it("keeps the current thumbnail when every Shorts candidate is landscape", async () => {
+  it("uses exact signed hq720 crop evidence without probing cover guesses first", async () => {
+    const portrait = await jpeg(2, 4);
+    const id = "a88WoGBL1Mc";
+    const hq = `https://i.ytimg.com/vi/${id}/hqdefault.jpg`;
+    const signed = `https://i.ytimg.com/vi/${id}/hq720.jpg?sqp=signed`;
+    const { runtime, fetched, persisted } = recordingRuntime(async (url) =>
+      url === signed ? image(portrait) : { miss: "permanent" },
+    );
+
+    await ensureRemotePoster(
+      "s1",
+      save({
+        rawJson: storedAsRawJson({
+          capture: {
+            id,
+            source: "youtube",
+            url: `https://www.youtube.com/watch?v=${id}`,
+            duration: 58,
+            media: [
+              {
+                type: "video",
+                url: `https://www.youtube.com/watch?v=${id}`,
+                posterUrl: signed,
+              },
+            ],
+          },
+          ytdlp: {
+            duration: 58,
+            width: 1080,
+            height: 1920,
+            thumbnail: hq,
+          },
+        }),
+      }),
+      false,
+      runtime,
+    );
+
+    expect(fetched).toEqual([signed]);
+    expect(persisted).toEqual([
+      [
+        "s1",
+        {},
+        expect.objectContaining({
+          newFiles: [expect.objectContaining({ width: 2, height: 4 })],
+        }),
+      ],
+    ]);
+  });
+
+  it("uses oar2 only after missing cover endpoints and the platform thumbnail", async () => {
+    const landscape = await jpeg(4, 2);
+    const portrait = await jpeg(2, 4);
+    const id = "a88WoGBL1Mc";
+    const hq = `https://i.ytimg.com/vi/${id}/hqdefault.jpg`;
+    const oar2 = `https://i.ytimg.com/vi/${id}/oar2.jpg`;
+    const oardefault = `https://i.ytimg.com/vi/${id}/oardefault.jpg`;
+    const sardefault = `https://i.ytimg.com/vi/${id}/sardefault.jpg`;
+    const { runtime, fetched, persisted } = recordingRuntime(async (url) => {
+      if (url === oardefault || url === sardefault) {
+        return { miss: "permanent" };
+      }
+      if (url === oar2) return image(portrait);
+      return image(landscape);
+    });
+
+    await ensureRemotePoster(
+      "s1",
+      save({
+        rawJson: storedAsRawJson({
+          capture: {
+            id,
+            source: "youtube",
+            url: `https://www.youtube.com/watch?v=${id}`,
+            duration: 39,
+            media: [
+              {
+                type: "video",
+                url: `https://www.youtube.com/watch?v=${id}`,
+                posterUrl: hq,
+              },
+            ],
+          },
+          ytdlp: {
+            duration: 39,
+            width: 1080,
+            height: 1920,
+            thumbnail: hq,
+          },
+        }),
+      }),
+      false,
+      runtime,
+    );
+
+    expect(fetched).toEqual([oardefault, sardefault, hq, oar2]);
+    expect(persisted).toEqual([
+      [
+        "s1",
+        {},
+        expect.objectContaining({
+          newFiles: [expect.objectContaining({ width: 2, height: 4 })],
+        }),
+      ],
+    ]);
+  });
+
+  it("records cover evidence when the repair falls back to oar2", async () => {
+    const portrait = await jpeg(2, 4);
+    const id = "a88WoGBL1Mc";
+    const hq = `https://i.ytimg.com/vi/${id}/hqdefault.jpg`;
+    const signed = `https://i.ytimg.com/vi/${id}/hq720.jpg?sqp=signed`;
+    const oar2 = `https://i.ytimg.com/vi/${id}/oar2.jpg`;
+    const { runtime, persisted } = recordingRuntime(async (url) =>
+      url === oar2 ? image(portrait) : { miss: "permanent" },
+    );
+
+    await ensureRemotePoster(
+      "s1",
+      save({
+        rawJson: storedAsRawJson({
+          capture: {
+            id,
+            source: "youtube",
+            url: `https://www.youtube.com/watch?v=${id}`,
+            duration: 58,
+            media: [
+              {
+                type: "video",
+                url: `https://www.youtube.com/watch?v=${id}`,
+                posterUrl: signed,
+              },
+            ],
+          },
+          ytdlp: {
+            duration: 58,
+            width: 1080,
+            height: 1920,
+            thumbnail: hq,
+          },
+        }),
+      }),
+      false,
+      runtime,
+    );
+
+    expect(persisted).toEqual([
+      [
+        "s1",
+        {},
+        expect.objectContaining({
+          newFiles: [
+            expect.objectContaining({
+              sourceUrl: oar2,
+              coverAttemptedUrl: signed,
+            }),
+          ],
+        }),
+      ],
+    ]);
+  });
+
+  it("falls back to the platform thumbnail when every Shorts candidate is landscape", async () => {
     const landscape = await jpeg(4, 2);
     const id = "dQw4w9WgXcQ";
     const hq = `https://i.ytimg.com/vi/${id}/hqdefault.jpg`;
@@ -209,6 +379,12 @@ describe("ensureRemotePoster", () => {
                 posterUrl: hq,
               },
             ],
+          },
+          ytdlp: {
+            duration: 30,
+            width: 1080,
+            height: 1920,
+            thumbnail: hq,
           },
         }),
       }),

@@ -26,7 +26,7 @@ export function buildExpression(videoId: string): string {
 }
 
 async function inPageYoutubeHarvest(
-  _videoId: string,
+  videoId: string,
   norm: ReturnType<typeof inPageYoutubeNormalize>,
 ): Promise<YoutubeWatchPage | null> {
   const deadline = Date.now() + 12_000;
@@ -38,7 +38,41 @@ async function inPageYoutubeHarvest(
       setTimeout(r, 250);
     });
   }
-  return norm.extractWatchPageMeta();
+  const page = norm.extractWatchPageMeta();
+  if (!page || !norm.isShortsVideo(page.meta?.durationSec)) return page;
+
+  try {
+    if (!globalThis.fetch) return page;
+    const controller = globalThis.AbortController
+      ? new globalThis.AbortController()
+      : null;
+    const timeout = controller
+      ? setTimeout(() => {
+          controller.abort();
+        }, 5000)
+      : null;
+    try {
+      const init: RequestInit = { credentials: "same-origin" };
+      if (controller) init.signal = controller.signal;
+      const response = await globalThis.fetch(`/shorts/${videoId}`, init);
+      if (response.ok) {
+        const cover = norm.shortsDisplayCoverFromHtml(
+          await response.text(),
+          videoId,
+        );
+        if (cover) {
+          page.mediaType = "video";
+          page.mediaUrl = cover;
+          page.mediaUrls = [{ url: cover, type: "video" }];
+        }
+      }
+    } finally {
+      if (timeout !== null) clearTimeout(timeout);
+    }
+  } catch {
+    /** The watch harvest is already complete, so a failed cover probe must not discard it. */
+  }
+  return page;
 }
 
 export function adapt(raw: JsonValue, ctx: HarvestAdaptCtx) {

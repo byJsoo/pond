@@ -124,6 +124,8 @@ export interface SaveFile {
   width?: number | null;
   height?: number | null;
   sourceUrl?: string | null;
+  /** Latest display cover already tried before this poster fell back to an automatic frame. */
+  coverAttemptedUrl?: string | null;
   /** Set on a thumbnail you picked, so regeneration and repairs leave it alone. */
   custom?: boolean | null;
   family?: string | null;

@@ -19,7 +19,10 @@ import {
 } from "../../../lib/poster-policy";
 import type { PosterWrite } from "../../../lib/poster-policy";
 import { probeVideoDims } from "../../../lib/video-dims";
-import { youtubeShortPosterPlan } from "../../../lib/youtube-thumbnail";
+import {
+  youtubeShortPosterPlan,
+  youtubeShortPosterRepairIndexes,
+} from "../../../lib/youtube-thumbnail";
 import { saveDir } from "../../../paths";
 import { persistSave } from "../../persist-save";
 import { ensureSaveThumbnail } from "../../save-thumbnail";
@@ -103,7 +106,13 @@ async function ensurePoster(
     Boolean(opts.forcePlatform) &&
     usesPlatformPoster(save.source) &&
     platformPosterUrl(save.rawJson) !== null;
-  if (!opts.force && !forcePlatform && !needsPosterRepair(files)) {
+  const coverRepairs = youtubeShortPosterRepairIndexes(files, save.rawJson);
+  if (
+    !opts.force &&
+    !forcePlatform &&
+    !needsPosterRepair(files) &&
+    coverRepairs.length === 0
+  ) {
     log.debug(
       "[pond pipeline:ensure-poster] posters already satisfy policy",
       saveId,
@@ -115,7 +124,7 @@ async function ensurePoster(
   const repairIndexes = new Set(
     opts.force || forcePlatform
       ? videos.map((_, index) => index)
-      : posterRepairIndexes(files),
+      : [...posterRepairIndexes(files), ...coverRepairs],
   );
   const replacing = [...repairIndexes].some(
     (index) => posters[index] !== undefined,
@@ -146,7 +155,8 @@ async function ensurePoster(
         usePlatform: usesPlatformPoster(save.source),
       },
       {
-        platformPoster: () => platformPosterFromSave(save.rawJson, index),
+        platformPoster: () =>
+          platformPosterFromSave(save.rawJson, index, video),
         framePoster: () =>
           framePoster({ saveId, video, index, worker: opts.worker }),
       },
@@ -305,12 +315,14 @@ export async function ensureRemotePoster(
 async function platformPosterFromSave(
   rawJson: RawJson | null,
   index: number,
+  video: Pick<SaveFile, "width" | "height">,
 ): Promise<PosterWrite | null> {
   return loadPoster(
     rawJson,
     platformPosterUrl(rawJson, index),
     index,
     fetchAvatarToTxFile,
+    video,
   );
 }
 
@@ -319,8 +331,9 @@ async function loadPoster(
   fallbackUrl: string | null,
   index: number,
   fetchImage: typeof fetchAvatarToTxFile,
+  video?: Pick<SaveFile, "width" | "height">,
 ): Promise<PosterWrite | null> {
-  const plan = youtubeShortPosterPlan(rawJson, fallbackUrl);
+  const plan = youtubeShortPosterPlan(rawJson, fallbackUrl, video);
   if (!plan) {
     return fallbackUrl ? posterFromUrl(fallbackUrl, index, fetchImage) : null;
   }
@@ -328,10 +341,24 @@ async function loadPoster(
   for (const url of plan.attempts) {
     const poster = await posterFromUrl(url, index, fetchImage);
     if (!poster) continue;
-    if (isPortraitPoster(poster)) return poster;
+    if (isPortraitPoster(poster)) {
+      if (plan.coverEvidenceUrl && isAutomaticFramePath(url)) {
+        poster.coverAttemptedUrl = plan.coverEvidenceUrl;
+      }
+      return poster;
+    }
     if (url === plan.fallbackUrl) fallback = poster;
   }
   return fallback;
+}
+
+function isAutomaticFramePath(url: string): boolean {
+  try {
+    const path = new URL(url).pathname;
+    return path.endsWith("/oar2.jpg") || path.endsWith("/frame0.jpg");
+  } catch {
+    return false;
+  }
 }
 
 function isPortraitPoster(poster: PosterWrite): boolean {
@@ -388,6 +415,9 @@ async function readExistingPoster(
       write.height = poster.height;
     }
     if (poster.sourceUrl) write.sourceUrl = poster.sourceUrl;
+    if (poster.coverAttemptedUrl) {
+      write.coverAttemptedUrl = poster.coverAttemptedUrl;
+    }
     return write;
   } catch {
     return null;
