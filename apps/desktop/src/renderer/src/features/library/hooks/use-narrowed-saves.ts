@@ -105,6 +105,8 @@ export function useNarrowedSaves(mode: SaveListMode, sourceFilter: string) {
       );
     }
   }, [folderId, folderViews, viewsReady]);
+  /** Folder presentation belongs to the mounted grid, so the last folder must not keep receiving writes after it leaves. */
+  useEffect(() => () => activateFolderPresentation(null), []);
   const request = useMemo<LibraryQueryRequest>(
     () => ({
       query: postKey

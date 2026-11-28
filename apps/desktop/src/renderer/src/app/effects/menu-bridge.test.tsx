@@ -5,6 +5,7 @@ import type { Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { currentLocation, openLibraryAt } from "@/app/test/library-router";
 import { libraryChrome } from "@/features/library/state/library-chrome";
+import { getViewState, setLayout } from "@/features/library/state/view-store";
 import { selectOnlySave } from "@/features/saves";
 import { bridge } from "@/shared/test/pond-bridge";
 import { MenuBridge } from "./menu-bridge";
@@ -44,5 +45,45 @@ describe("menu bridge inspector", () => {
     expect(libraryChrome.getState().detailsOpen).toBe(!open);
     expect(currentLocation(router).pathname).toBe("/");
     expect(currentLocation(router).search).not.toHaveProperty("save");
+  });
+
+  it("ignores a layout menu action outside an active grid", async () => {
+    await openLibraryAt("/tags");
+    await act(async () => {
+      root.render(<MenuBridge />);
+    });
+    const layout = getViewState().layout;
+
+    try {
+      await act(async () => {
+        bridge.emit("onMenuAction", {
+          id: "view.layout.cycle",
+          source: "menu",
+        });
+      });
+      expect(getViewState().layout).toBe(layout);
+    } finally {
+      setLayout(layout);
+    }
+  });
+
+  it("applies a layout menu action on an active grid", async () => {
+    await openLibraryAt("/");
+    await act(async () => {
+      root.render(<MenuBridge />);
+    });
+    const layout = getViewState().layout;
+
+    try {
+      await act(async () => {
+        bridge.emit("onMenuAction", {
+          id: "view.layout.cycle",
+          source: "menu",
+        });
+      });
+      expect(getViewState().layout).not.toBe(layout);
+    } finally {
+      setLayout(layout);
+    }
   });
 });

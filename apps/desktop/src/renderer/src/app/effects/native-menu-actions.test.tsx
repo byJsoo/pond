@@ -1,9 +1,12 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { currentLocation, openLibraryAt } from "@/app/test/library-router";
+import { filterToolbar } from "@/features/library/components/filter-menu/toolbar-state";
 import { searchViewKey } from "@/features/library/lib/search-view";
 import {
+  currentSort,
   getViewState,
   resetFilters,
+  searchAllSaves,
   setSearchDraft,
 } from "@/features/library/state/view-store";
 import {
@@ -65,6 +68,50 @@ it("allows an explicit menu command while an editor has focus", () => {
   editor.focus();
 
   expect(shouldIgnoreMenuAction("menu", "view.sidebar.toggle")).toBe(false);
+});
+
+describe("grid-only native menu actions", () => {
+  it("ignores filter commands outside an active grid", async () => {
+    await openLibraryAt("/tags");
+    const open = filterToolbar.isOpen();
+
+    handleNativeMenuAction("find.filters.toggle");
+
+    expect(filterToolbar.isOpen()).toBe(open);
+  });
+
+  it("ignores random sort outside an active grid", async () => {
+    await openLibraryAt("/tags");
+    const sort = currentSort();
+    const randomSeed = getViewState().randomSeed;
+
+    handleNativeMenuAction("view.random");
+
+    expect(currentSort()).toEqual(sort);
+    expect(getViewState().randomSeed).toBe(randomSeed);
+  });
+
+  it("ignores subfolder contents outside an active grid", async () => {
+    await openLibraryAt("/tags");
+    const includeSubfolders = getViewState().includeSubfolders;
+
+    handleNativeMenuAction("view.subfolders.toggle");
+
+    expect(getViewState().includeSubfolders).toBe(includeSubfolders);
+  });
+
+  it("does not narrow a hidden search scope outside an active grid", async () => {
+    const view = { kind: "folder", id: "design" } as const;
+    searchAllSaves(view);
+    await openLibraryAt("/tags");
+
+    try {
+      handleNativeMenuAction("find.search");
+      expect(getViewState().searchAllView).toBe(searchViewKey(view));
+    } finally {
+      resetFilters();
+    }
+  });
 });
 
 describe("Search All Saves", () => {

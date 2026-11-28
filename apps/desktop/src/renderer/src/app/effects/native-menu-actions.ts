@@ -6,6 +6,10 @@ import {
   exportDebugReport,
   runNewAction,
 } from "@/features/library/components/new-menu/actions";
+import {
+  isGridSurfaceActive,
+  runWhenGridSurfaceActive,
+} from "@/features/library/lib/grid-surface";
 import { searchViewFor } from "@/features/library/lib/search-view";
 import type {
   SearchScope,
@@ -148,6 +152,7 @@ function openFilter(field: FieldId): void {
 }
 
 function currentSearchView(): SearchView | null {
+  if (!isGridSurfaceActive()) return null;
   const meta = currentRouteMeta();
   if (meta?.surface !== "grid") return null;
   return searchViewFor(meta.nav);
@@ -214,7 +219,7 @@ export function shouldIgnoreMenuAction(
 export function handleNativeMenuAction(id: MenuActionId): boolean {
   const field = findField(id);
   if (field) {
-    openFilter(field);
+    runWhenGridSurfaceActive(() => openFilter(field));
     return true;
   }
   const engine = reverseImageEngine(id);
@@ -311,7 +316,7 @@ export function handleNativeMenuAction(id: MenuActionId): boolean {
       void removeFromCurrentFolder();
       return true;
     case "find.search":
-      openSearch("current");
+      runWhenGridSurfaceActive(() => openSearch("current"));
       return true;
     case "find.search-all":
       openSearch("all");
@@ -341,20 +346,22 @@ export function handleNativeMenuAction(id: MenuActionId): boolean {
       void addToLastFolder();
       return true;
     case "find.filters.toggle":
-      filterToolbar.toggle();
+      runWhenGridSurfaceActive(() => filterToolbar.toggle());
       return true;
     case "find.filters.reset":
-      resetFilters();
+      runWhenGridSurfaceActive(resetFilters);
       return true;
     case "find.visual-search": {
-      const id = requireSelection()[0];
-      const save = id ? pool.get(id) : null;
-      if (save) {
-        saveLibraryBridge.setVisualProbe({
-          id: save.id,
-          label: save.title?.trim() || save.id,
-        });
-      }
+      runWhenGridSurfaceActive(() => {
+        const id = requireSelection()[0];
+        const save = id ? pool.get(id) : null;
+        if (save) {
+          saveLibraryBridge.setVisualProbe({
+            id: save.id,
+            label: save.title?.trim() || save.id,
+          });
+        }
+      });
       return true;
     }
     case "organize.add-tag":
@@ -376,13 +383,17 @@ export function handleNativeMenuAction(id: MenuActionId): boolean {
       return true;
     }
     case "view.random": {
-      setSort({ key: "random", dir: currentSort().dir });
-      reseedRandomSort();
+      runWhenGridSurfaceActive(() => {
+        setSort({ key: "random", dir: currentSort().dir });
+        reseedRandomSort();
+      });
       return true;
     }
     case "view.subfolders.toggle": {
-      const state = getViewState();
-      setIncludeSubfolders(!state.includeSubfolders);
+      runWhenGridSurfaceActive(() => {
+        const state = getViewState();
+        setIncludeSubfolders(!state.includeSubfolders);
+      });
       return true;
     }
     case "help.shortcuts":

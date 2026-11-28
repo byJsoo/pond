@@ -14,6 +14,7 @@ import {
   newTag,
   runNewAction,
 } from "@/features/library/components/new-menu/actions";
+import { runWhenGridSurfaceActive } from "@/features/library/lib/grid-surface";
 import type { LayoutValue } from "@/features/library/lib/view-prefs";
 import { ZOOM_DEFAULT } from "@/features/library/lib/zoom";
 import { commandMenu } from "@/features/library/state/command-menu";
@@ -98,7 +99,7 @@ export function AppHotkeys() {
   useEffect(() => {
     return window.pond.onShortcutAction((id) => {
       if (isEditableTarget()) return;
-      if (id === "view.layout-cycle") cycleLayout();
+      if (id === "view.layout-cycle") runWhenGridSurfaceActive(cycleLayout);
     });
   }, []);
   const shortcuts = useShortcutBindings();
@@ -216,27 +217,30 @@ export function AppHotkeys() {
       },
       {
         hotkey: bindingKeys(shortcuts, "view.layout-waterfall"),
-        callback: () => setLayout("waterfall" satisfies LayoutValue),
+        callback: () =>
+          runWhenGridSurfaceActive(() =>
+            setLayout("waterfall" satisfies LayoutValue),
+          ),
         options: { ignoreInputs: true },
       },
       {
         hotkey: bindingKeys(shortcuts, "view.layout-grid"),
-        callback: () => setLayout("grid"),
+        callback: () => runWhenGridSurfaceActive(() => setLayout("grid")),
         options: { ignoreInputs: true },
       },
       {
         hotkey: bindingKeys(shortcuts, "view.layout-justified"),
-        callback: () => setLayout("justified"),
+        callback: () => runWhenGridSurfaceActive(() => setLayout("justified")),
         options: { ignoreInputs: true },
       },
       {
         hotkey: bindingKeys(shortcuts, "view.layout-list"),
-        callback: () => setLayout("list"),
+        callback: () => runWhenGridSurfaceActive(() => setLayout("list")),
         options: { ignoreInputs: true },
       },
       {
         hotkey: bindingKeys(shortcuts, "view.layout-cycle"),
-        callback: () => cycleLayout(),
+        callback: () => runWhenGridSurfaceActive(cycleLayout),
         options: { ignoreInputs: true },
       },
       {
@@ -246,17 +250,17 @@ export function AppHotkeys() {
       },
       {
         hotkey: bindingKeys(shortcuts, "view.zoom-in"),
-        callback: () => adjustZoom(20),
+        callback: () => runWhenGridSurfaceActive(() => adjustZoom(20)),
         options: { ignoreInputs: true },
       },
       {
         hotkey: bindingKeys(shortcuts, "view.zoom-out"),
-        callback: () => adjustZoom(-20),
+        callback: () => runWhenGridSurfaceActive(() => adjustZoom(-20)),
         options: { ignoreInputs: true },
       },
       {
         hotkey: bindingKeys(shortcuts, "view.zoom-reset"),
-        callback: () => setZoom(ZOOM_DEFAULT),
+        callback: () => runWhenGridSurfaceActive(() => setZoom(ZOOM_DEFAULT)),
         options: { ignoreInputs: true },
       },
       {
@@ -269,27 +273,30 @@ export function AppHotkeys() {
       },
       {
         hotkey: bindingKeys(shortcuts, "view.grayscale"),
-        callback: () => inspect.toggleGrayscale(),
+        callback: () =>
+          runWhenGridSurfaceActive(() => inspect.toggleGrayscale()),
         options: { ignoreInputs: true },
       },
       {
         hotkey: bindingKeys(shortcuts, "view.options"),
-        callback: () => libraryHeader.togglePopover(),
+        callback: () =>
+          runWhenGridSurfaceActive(() => libraryHeader.togglePopover()),
         options: { ignoreInputs: true },
       },
       {
         hotkey: bindingKeys(shortcuts, "view.display"),
-        callback: () => libraryHeader.togglePopover(),
+        callback: () =>
+          runWhenGridSurfaceActive(() => libraryHeader.togglePopover()),
         options: { ignoreInputs: true },
       },
       {
         hotkey: bindingKeys(shortcuts, "view.sort-dir"),
-        callback: () => toggleSortDir(),
+        callback: () => runWhenGridSurfaceActive(toggleSortDir),
         options: { ignoreInputs: true },
       },
       {
         hotkey: bindingKeys(shortcuts, "view.sort-key"),
-        callback: () => cycleSortKey(),
+        callback: () => runWhenGridSurfaceActive(cycleSortKey),
         options: { ignoreInputs: true },
       },
       {

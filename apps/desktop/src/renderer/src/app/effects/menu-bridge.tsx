@@ -27,6 +27,7 @@ import {
   runNewAction,
   verifyIntegrity,
 } from "@/features/library/components/new-menu/actions";
+import { runWhenGridSurfaceActive } from "@/features/library/lib/grid-surface";
 import {
   backupLibrary,
   createLibrary,
@@ -132,19 +133,19 @@ export function MenuBridge() {
           return;
 
         case "view.layout.cycle":
-          cycleLayout();
+          runWhenGridSurfaceActive(cycleLayout);
           return;
 
         case "view.zoom-in":
-          adjustZoom(20);
+          runWhenGridSurfaceActive(() => adjustZoom(20));
           return;
 
         case "view.zoom-out":
-          adjustZoom(-20);
+          runWhenGridSurfaceActive(() => adjustZoom(-20));
           return;
 
         case "view.zoom-reset":
-          setZoom(ZOOM_DEFAULT);
+          runWhenGridSurfaceActive(() => setZoom(ZOOM_DEFAULT));
           return;
 
         case "library.search":
@@ -197,7 +198,9 @@ export function MenuBridge() {
         case "view.layout.justified":
         case "view.layout.list": {
           const next = id.slice("view.layout.".length);
-          if (isLayoutValue(next)) setLayout(next);
+          if (isLayoutValue(next)) {
+            runWhenGridSurfaceActive(() => setLayout(next));
+          }
           return;
         }
 
@@ -211,7 +214,7 @@ export function MenuBridge() {
           return;
 
         case "view.grayscale":
-          inspect.toggleGrayscale();
+          runWhenGridSurfaceActive(() => inspect.toggleGrayscale());
           return;
 
         case "theme.light":

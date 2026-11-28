@@ -4,6 +4,7 @@ import { act } from "react";
 import { createRoot } from "react-dom/client";
 import type { Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { openLibraryAt } from "@/app/test/library-router";
 import {
   commandMenu,
   useCommandMenuOpen,
@@ -51,7 +52,8 @@ describe("app hotkeys in text fields", () => {
   let host: HTMLDivElement;
   let root: Root;
 
-  beforeEach(() => {
+  beforeEach(async () => {
+    await openLibraryAt("/");
     bridge.use({
       query: { "settings.getPrefs": () => PrefsSchema.parse({}) },
       syncRunAll: async () => ({ ok: true }),
@@ -110,6 +112,19 @@ describe("app hotkeys in text fields", () => {
     const field = document.createElement("textarea");
     await mount(field);
     await act(async () => press("v", field));
+    expect(attr("popover")).toBe("closed");
+  });
+
+  it("opens view options on an active grid", async () => {
+    await mount();
+    await act(async () => press("v"));
+    expect(attr("popover")).toBe("view");
+  });
+
+  it("does not open view options outside an active grid", async () => {
+    await openLibraryAt("/tags");
+    await mount();
+    await act(async () => press("v"));
     expect(attr("popover")).toBe("closed");
   });
 
@@ -240,9 +255,35 @@ describe("app hotkeys in text fields", () => {
     expect(getViewState().layout).toBe(layout);
   });
 
+  it("does not cycle layout outside an active grid", async () => {
+    await openLibraryAt("/tags");
+    await mount();
+    const layout = getViewState().layout;
+    await act(async () => {
+      document.dispatchEvent(
+        new KeyboardEvent("keydown", {
+          key: "l",
+          metaKey: true,
+          shiftKey: true,
+          bubbles: true,
+          cancelable: true,
+        }),
+      );
+    });
+    expect(getViewState().layout).toBe(layout);
+  });
+
   it("does not run a global shortcut command while typing in an input", async () => {
     const input = document.createElement("input");
     await mount(input);
+    const layout = getViewState().layout;
+    await act(async () => bridge.emit("onShortcutAction", "view.layout-cycle"));
+    expect(getViewState().layout).toBe(layout);
+  });
+
+  it("does not run a global shortcut command outside an active grid", async () => {
+    await openLibraryAt("/tags");
+    await mount();
     const layout = getViewState().layout;
     await act(async () => bridge.emit("onShortcutAction", "view.layout-cycle"));
     expect(getViewState().layout).toBe(layout);

@@ -11,9 +11,12 @@ import type { LibraryTestRouter } from "@/app/test/library-router";
 import type { SaveListMode } from "@/features/saves";
 import { pathForLibraryNav } from "@/shared/lib/library-nav";
 import type { LibraryNav } from "@/shared/lib/library-nav";
+import { useRouteMeta } from "@/shared/lib/route-meta";
 import { bridge } from "@/shared/test/pond-bridge";
 import { getLibraryNav } from "../state/library-chrome";
 import {
+  activateFolderPresentation,
+  getViewState,
   resetFilters,
   searchAllSaves,
   searchCurrentView,
@@ -31,11 +34,17 @@ function Probe({ mode }: { mode: SaveListMode }) {
 
 const ProbeMode = createContext<SaveListMode>("library");
 
+function GridOwnedProbe() {
+  const meta = useRouteMeta();
+  if (meta.surface !== "grid") return null;
+  return <Probe mode={use(ProbeMode)} />;
+}
+
 function Shell({ children }: { children: ReactNode }) {
   return (
     <>
       {children}
-      <Probe mode={use(ProbeMode)} />
+      <GridOwnedProbe />
     </>
   );
 }
@@ -82,6 +91,7 @@ describe("library search scope", () => {
       },
     });
     resetFilters();
+    activateFolderPresentation(null);
     host = document.createElement("div");
     document.body.append(host);
     root = createRoot(host);
@@ -91,6 +101,7 @@ describe("library search scope", () => {
     await act(async () => root.unmount());
     host.remove();
     resetFilters();
+    activateFolderPresentation(null);
   });
 
   it("keeps a folder search inside the folder by default", async () => {
@@ -127,5 +138,14 @@ describe("library search scope", () => {
     await act(async () => setSearchDraft("poster"));
     await act(async () => searchAllSaves({ kind: "trash" }));
     expect(scope()?.deletedOnly).toBe(true);
+  });
+
+  it("clears folder presentation ownership when the grid surface unmounts", async () => {
+    await render("library");
+    expect(getViewState().presentationFolderId).toBe("design");
+
+    await act(async () => router.history.push("/tags"));
+
+    expect(getViewState().presentationFolderId).toBeNull();
   });
 });
